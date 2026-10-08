@@ -1,0 +1,349 @@
+```python
+from flask import Flask, request, redirect, url_for, send_from_directory, render_template_string
+import os
+from werkzeug.utils import secure_filename
+
+app = Flask(__name__)
+
+# Cloud storage folder
+CLOUD_FOLDER = "cloud_storage"
+RESTORE_FOLDER = "restored_files"
+
+os.makedirs(CLOUD_FOLDER, exist_ok=True)
+os.makedirs(RESTORE_FOLDER, exist_ok=True)
+
+app.config["CLOUD_FOLDER"] = CLOUD_FOLDER
+
+
+HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cloud Backup & Restore System</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f2f5f9;
+            margin: 0;
+            padding: 0;
+        }
+
+        .header {
+            background: #263238;
+            color: white;
+            padding: 25px;
+            text-align: center;
+        }
+
+        .container {
+            width: 85%;
+            max-width: 900px;
+            margin: 30px auto;
+        }
+
+        .card {
+            background: white;
+            padding: 25px;
+            margin-bottom: 25px;
+            border-radius: 10px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+        }
+
+        h2 {
+            color: #263238;
+        }
+
+        input[type=file] {
+            padding: 10px;
+            width: 80%;
+        }
+
+        button {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            background: #1976d2;
+            color: white;
+        }
+
+        button:hover {
+            background: #125aa0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
+            text-align: left;
+        }
+
+        th {
+            background: #eceff1;
+        }
+
+        a {
+            text-decoration: none;
+            color: #1976d2;
+            margin-right: 10px;
+        }
+
+        .delete {
+            color: #d32f2f;
+        }
+
+        .message {
+            background: #e8f5e9;
+            padding: 12px;
+            border-radius: 5px;
+            color: #2e7d32;
+            margin-bottom: 20px;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #777;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="header">
+    <h1>☁ Cloud-Based Backup & Restore System</h1>
+    <p>Securely backup and restore your files</p>
+</div>
+
+<div class="container">
+
+    {% if message %}
+    <div class="message">
+        {{ message }}
+    </div>
+    {% endif %}
+
+    <div class="card">
+        <h2>📤 Backup File</h2>
+
+        <form action="/backup" method="POST" enctype="multipart/form-data">
+
+            <input type="file" name="file" required>
+
+            <br><br>
+
+            <button type="submit">
+                Backup File
+            </button>
+
+        </form>
+    </div>
+
+    <div class="card">
+
+        <h2>☁ Cloud Backup Storage</h2>
+
+        {% if files %}
+
+        <table>
+
+            <tr>
+                <th>File Name</th>
+                <th>Size</th>
+                <th>Actions</th>
+            </tr>
+
+            {% for file in files %}
+
+            <tr>
+
+                <td>{{ file.name }}</td>
+
+                <td>{{ file.size }} KB</td>
+
+                <td>
+
+                    <a href="/restore/{{ file.name }}">
+                        Restore
+                    </a>
+
+                    <a href="/download/{{ file.name }}">
+                        Download
+                    </a>
+
+                    <a class="delete"
+                       href="/delete/{{ file.name }}"
+                       onclick="return confirm('Delete this backup?')">
+                        Delete
+                    </a>
+
+                </td>
+
+            </tr>
+
+            {% endfor %}
+
+        </table>
+
+        {% else %}
+
+        <p>No backup files available.</p>
+
+        {% endif %}
+
+    </div>
+
+</div>
+
+<div class="footer">
+    Cloud Computing Mini Project
+</div>
+
+</body>
+</html>
+"""
+
+
+def get_files():
+
+    files = []
+
+    for filename in os.listdir(CLOUD_FOLDER):
+
+        filepath = os.path.join(CLOUD_FOLDER, filename)
+
+        if os.path.isfile(filepath):
+
+            size = round(os.path.getsize(filepath) / 1024, 2)
+
+            files.append({
+                "name": filename,
+                "size": size
+            })
+
+    return files
+
+
+@app.route("/")
+def home():
+
+    files = get_files()
+
+    return render_template_string(
+        HTML,
+        files=files,
+        message=None
+    )
+
+
+@app.route("/backup", methods=["POST"])
+def backup():
+
+    if "file" not in request.files:
+
+        return redirect(url_for("home"))
+
+    file = request.files["file"]
+
+    if file.filename == "":
+        return redirect(url_for("home"))
+
+    filename = secure_filename(file.filename)
+
+    filepath = os.path.join(
+        CLOUD_FOLDER,
+        filename
+    )
+
+    file.save(filepath)
+
+    files = get_files()
+
+    return render_template_string(
+        HTML,
+        files=files,
+        message="File backed up successfully to cloud storage!"
+    )
+
+
+@app.route("/restore/<filename>")
+def restore(filename):
+
+    filename = secure_filename(filename)
+
+    source = os.path.join(
+        CLOUD_FOLDER,
+        filename
+    )
+
+    destination = os.path.join(
+        RESTORE_FOLDER,
+        filename
+    )
+
+    if os.path.exists(source):
+
+        with open(source, "rb") as src:
+
+            data = src.read()
+
+        with open(destination, "wb") as dest:
+
+            dest.write(data)
+
+        files = get_files()
+
+        return render_template_string(
+            HTML,
+            files=files,
+            message="File restored successfully to the restored_files folder!"
+        )
+
+    return redirect(url_for("home"))
+
+
+@app.route("/download/<filename>")
+def download(filename):
+
+    filename = secure_filename(filename)
+
+    return send_from_directory(
+        CLOUD_FOLDER,
+        filename,
+        as_attachment=True
+    )
+
+
+@app.route("/delete/<filename>")
+def delete(filename):
+
+    filename = secure_filename(filename)
+
+    filepath = os.path.join(
+        CLOUD_FOLDER,
+        filename
+    )
+
+    if os.path.exists(filepath):
+
+        os.remove(filepath)
+
+    return redirect(url_for("home"))
+
+
+if __name__ == "__main__":
+
+    print("--------------------------------------")
+    print(" Cloud Backup & Restore System")
+    print("--------------------------------------")
+    print("Server running at:")
+    print("http://127.0.0.1:5000")
+    print("--------------------------------------")
+
+    app.run(debug=True)
+```
